@@ -4,4 +4,4 @@ compatibility_date = "2024-01-01"
 
 [[kv_namespaces]]
 binding = "BLOG_KV"
-id = "YOUR_KV_NAMESPACE_ID"
+id = "8e60917c00e645e4a4906d990efc0422"
