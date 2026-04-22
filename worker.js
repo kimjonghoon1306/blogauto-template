@@ -1225,11 +1225,18 @@ async function loadAdminPosts(){
         '<div class="pi-title"><a href="/post/'+p.id+'" target="_blank">'+p.title+'</a></div>'+
         '<span class="pi-date">'+date+'</span>'+
         '<div class="pi-actions">'+
-          '<button class="btn btn-ghost btn-sm" onclick="editPost(\''+p.id+'\')">수정</button>'+
-          '<button class="btn btn-del btn-sm" onclick="deletePost(\''+p.id+'\')">삭제</button>'+
+          '<button class="btn btn-ghost btn-sm" data-action="edit" data-id="'+p.id+'">수정</button>'+
+          '<button class="btn btn-del btn-sm" data-action="del" data-id="'+p.id+'">삭제</button>'+
         '</div>'+
       '</div>';
     }).join('');
+    el.onclick=function(e){
+      var btn=e.target.closest('button[data-action]');
+      if(!btn)return;
+      var id=btn.dataset.id;
+      if(btn.dataset.action==='edit')editPost(id);
+      else if(btn.dataset.action==='del')deletePost(id);
+    };
   }catch(e){}
 }
 async function editPost(id){
