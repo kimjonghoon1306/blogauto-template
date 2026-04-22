@@ -511,19 +511,9 @@ async function loadPost() {
     const mid = document.getElementById('adMid');
     mid.innerHTML = \`${getAdUnit(cfg.adsenseClient, cfg.slotMid)}\`;
 
-    document.getElementById('postArticle').innerHTML = \`
-      <div class="post-header">
-        <span class="post-category-tag">\${p.category}</span>
-        <h1 class="post-title">\${p.title}</h1>
-        <div class="post-meta">
-          <span>📅 \${new Date(p.createdAt).toLocaleDateString('ko-KR')}</span>
-          <span>👁 \${p.views?.toLocaleString()}회</span>
-        </div>
-      </div>
-      \${p.thumbnail ? '<img class="post-thumb" src="' + p.thumbnail + '" alt="' + p.title + '">' : ''}
-      <div class="post-content">\${p.content}</div>
-      \${p.tags?.length ? '<div class="post-tags">' + p.tags.map(t => '<span class="tag">#' + t + '</span>').join('') + '</div>' : ''}
-    \`;
+    const thumbHtml = p.thumbnail ? '<img class="post-thumb" src="' + p.thumbnail + '" alt="' + p.title + '">' : '';
+    const tagsHtml = p.tags && p.tags.length ? '<div class="post-tags">' + p.tags.map(function(t){ return '<span class="tag">#' + t + '</span>'; }).join('') + '</div>' : '';
+    document.getElementById('postArticle').innerHTML = '<div class="post-header"><span class="post-category-tag">' + p.category + '</span><h1 class="post-title">' + p.title + '</h1><div class="post-meta"><span>📅 ' + new Date(p.createdAt).toLocaleDateString("ko-KR") + '</span><span>👁 ' + (p.views || 0).toLocaleString() + '회</span></div></div>' + thumbHtml + '<div class="post-content">' + p.content + '</div>' + tagsHtml;
   } catch(e) {
     document.getElementById('postArticle').innerHTML = '<div style="text-align:center;padding:60px">오류가 발생했습니다</div>';
   }
