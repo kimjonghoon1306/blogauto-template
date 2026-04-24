@@ -226,6 +226,7 @@ async function handleAPI(request, env, path, cors, cfg) {
         {id:"name", label:"이름", type:"text", placeholder:"홍길동", required:true},
         {id:"contact", label:"연락처 (카카오톡 ID or 전화번호)", type:"text", placeholder:"kakao123", required:true},
         {id:"blog_name", label:"원하는 블로그 이름", type:"text", placeholder:"내 블로그", required:true},
+        {id:"purpose", label:"블로그 용도", type:"select", options:["애드센스 승인용","온라인 뉴스형","둘 다"], required:true},
         {id:"color", label:"선호 색상", type:"select", options:["라임(#b3ff00)","시안(#00d4ff)","오렌지(#ff6b00)","핑크(#ff3b8f)","퍼플(#7c3aed)","직접 지정"], required:false},
         {id:"memo", label:"기타 요청사항", type:"textarea", placeholder:"원하시는 내용을 자유롭게 적어주세요", required:false}
       ],
@@ -481,9 +482,9 @@ ${headerHTML(cfg, '<a href="/admin">관리</a>')}
   <div id="featWrap" class="feat-wrap"></div>
   <div class="stats-bar">
     <div class="stat-item"><div class="stat-n"><em id="sc">--</em>개</div><div class="stat-l">발행된 글</div><div class="stat-bar-wrap"><div class="stat-fill" style="--w:70%"></div></div></div>
-    <div class="stat-item"><div class="stat-n">AdSense</div><div class="stat-l">광고 운영중</div><div class="stat-bar-wrap"><div class="stat-fill" style="--w:100%"></div></div></div>
-    <div class="stat-item"><div class="stat-n">24/7</div><div class="stat-l">자동 운영</div><div class="stat-bar-wrap"><div class="stat-fill" style="--w:100%"></div></div></div>
-    <div class="stat-item"><div class="stat-n">SEO</div><div class="stat-l">최적화 완료</div><div class="stat-bar-wrap"><div class="stat-fill" style="--w:90%"></div></div></div>
+    <div class="stat-item"><div class="stat-n">24/7</div><div class="stat-l">무중단 운영</div><div class="stat-bar-wrap"><div class="stat-fill" style="--w:100%"></div></div></div>
+    <div class="stat-item"><div class="stat-n">SEO</div><div class="stat-l">검색 최적화</div><div class="stat-bar-wrap"><div class="stat-fill" style="--w:100%"></div></div></div>
+    <div class="stat-item"><div class="stat-n">Auto</div><div class="stat-l">자동 발행</div><div class="stat-bar-wrap"><div class="stat-fill" style="--w:100%"></div></div></div>
   </div>
   <div class="sec-head">
     <div class="sec-ttl">최신 아티클</div>
@@ -1182,7 +1183,12 @@ function formPopupCSS() {
     '.order-title{font-size:32px;font-weight:900;letter-spacing:-1px;line-height:1.1;margin-bottom:8px}',
     '.order-sub{font-size:14px;color:var(--t2);line-height:1.7}',
     '.order-panel{background:var(--sf);border-top:3px solid var(--ac);padding:28px}',
-    '@media(max-width:480px){.fp-modal{max-height:100vh;border-radius:0}.fp-overlay{align-items:flex-end;padding:0}.fp-btn.right{right:16px;bottom:16px}.fp-btn.left{left:16px;bottom:16px}}'
+    '@media(max-width:480px){.fp-modal{max-height:100vh;border-radius:0}.fp-overlay{align-items:flex-end;padding:0}.fp-btn.right{right:16px;bottom:16px}.fp-btn.left{left:16px;bottom:16px}}',
+    '.fp-actions{display:flex;align-items:center;justify-content:space-between;padding:10px 24px 16px;border-top:1px solid var(--br);gap:12px}',
+    '.fp-week-btn{background:none;border:none;font-size:11px;color:var(--t3);cursor:pointer;font-family:inherit;letter-spacing:.04em;padding:4px 0;text-decoration:underline;text-underline-offset:3px;transition:color .15s}',
+    '.fp-week-btn:hover{color:var(--t2)}',
+    '.fp-close-text{background:none;border:1px solid var(--br2);font-size:11px;color:var(--t2);cursor:pointer;font-family:inherit;padding:6px 14px;font-weight:600;transition:all .15s}',
+    '.fp-close-text:hover{border-color:var(--t1);color:var(--t1)}'
   ].join('');
 }
 
@@ -1196,6 +1202,8 @@ function formPopupJS() {
   lines.push('    var fc = d.config;');
   lines.push('    if (isPopup) {');
   lines.push('      if (!fc.popup_enabled) return;');
+  lines.push('      var hideUntil = localStorage.getItem("fp_hide_until");');
+  lines.push('      if (hideUntil && Date.now() < parseInt(hideUntil)) return;');
   lines.push('      var btn = document.createElement("button");');
   lines.push('      btn.className = "fp-btn " + (fc.button_pos || "right");');
   lines.push('      btn.textContent = fc.button_text || "블로그 제작 신청";');
@@ -1274,7 +1282,13 @@ function formPopupJS() {
   lines.push('  submitBtn.textContent = fc.submit_text || "신청하기";');
   lines.push('  submitBtn.onclick = function() { submitForm(true); };');
   lines.push('  var errP = document.createElement("p"); errP.className = "fp-err"; errP.id = "fpErr";');
-  lines.push('  body.appendChild(fieldsWrap); body.appendChild(submitBtn); body.appendChild(errP);');
+  lines.push('  var actBar = document.createElement("div"); actBar.className = "fp-actions";');
+  lines.push('  var weekBtn = document.createElement("button"); weekBtn.className = "fp-week-btn"; weekBtn.textContent = "일주일간 보지 않기";');
+  lines.push('  weekBtn.onclick = function() { localStorage.setItem("fp_hide_until", Date.now() + 7*24*60*60*1000); closeFormModal(); };');
+  lines.push('  var closeTextBtn = document.createElement("button"); closeTextBtn.className = "fp-close-text"; closeTextBtn.textContent = "닫기";');
+  lines.push('  closeTextBtn.onclick = function() { closeFormModal(); };');
+  lines.push('  actBar.appendChild(weekBtn); actBar.appendChild(closeTextBtn);');
+  lines.push('  body.appendChild(fieldsWrap); body.appendChild(submitBtn); body.appendChild(errP); body.appendChild(actBar);');
   lines.push('  modal.appendChild(hd); modal.appendChild(body);');
   lines.push('  overlay.appendChild(modal);');
   lines.push('  overlay.onclick = function(e) { if (e.target === overlay) closeFormModal(); };');
@@ -1331,7 +1345,7 @@ function formPopupJS() {
 
 async function getOrderHTML(cfg, env) {
   var raw = await env.BLOG_KV.get("form_config");
-  var def = {title:"블로그 제작 신청", subtitle:"애드센스 승인용 블로그를 빠르게 만들어드립니다", fixed_enabled:true, popup_enabled:false, popup_trigger:"button", popup_delay:5, button_text:"📋 블로그 제작 신청", button_pos:"right", submit_text:"신청하기", success_msg:"신청이 완료되었습니다! 24시간 이내에 연락드리겠습니다.", fields:[{id:"name",label:"이름",type:"text",placeholder:"홍길동",required:true},{id:"contact",label:"연락처 (카카오톡 ID or 전화번호)",type:"text",placeholder:"kakao123",required:true},{id:"blog_name",label:"원하는 블로그 이름",type:"text",placeholder:"내 블로그",required:true},{id:"color",label:"선호 색상",type:"select",options:["라임(#b3ff00)","시안(#00d4ff)","오렌지(#ff6b00)","핑크(#ff3b8f)","퍼플(#7c3aed)","직접 지정"],required:false},{id:"memo",label:"기타 요청사항",type:"textarea",placeholder:"원하시는 내용을 자유롭게 적어주세요",required:false}]};
+  var def = {title:"블로그 제작 신청", subtitle:"애드센스 승인 · 온라인 뉴스 블로그를 빠르게 만들어드립니다", fixed_enabled:true, popup_enabled:false, popup_trigger:"button", popup_delay:5, button_text:"📋 블로그 제작 신청", button_pos:"right", submit_text:"신청하기", success_msg:"신청이 완료되었습니다! 24시간 이내에 연락드리겠습니다.", fields:[{id:"name",label:"이름",type:"text",placeholder:"홍길동",required:true},{id:"contact",label:"연락처 (카카오톡 ID or 전화번호)",type:"text",placeholder:"kakao123",required:true},{id:"blog_name",label:"원하는 블로그 이름",type:"text",placeholder:"내 블로그",required:true},{id:"purpose",label:"블로그 용도",type:"select",options:["애드센스 승인용","온라인 뉴스형","둘 다"],required:true},{id:"color",label:"선호 색상",type:"select",options:["라임(#b3ff00)","시안(#00d4ff)","오렌지(#ff6b00)","핑크(#ff3b8f)","퍼플(#7c3aed)","직접 지정"],required:false},{id:"memo",label:"기타 요청사항",type:"textarea",placeholder:"원하시는 내용을 자유롭게 적어주세요",required:false}]};
   var fc = raw ? Object.assign({}, def, JSON.parse(raw)) : def;
 
   return '<!DOCTYPE html><html lang="ko" data-theme="dark"><head>' +
