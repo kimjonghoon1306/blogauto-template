@@ -55,6 +55,7 @@ export default {
     if (path === "/admin" || path === "/admin.html") return html(getAdminHTML(cfg));
     if (path === "/terms") return html(getTermsHTML(cfg));
     if (path === "/privacy") return html(getPrivacyHTML(cfg));
+    if (path === "/order") return html(await getOrderHTML(cfg, env));
     if (path === "/sitemap.xml") return serveSitemap(env);
     if (path === "/robots.txt") return serveRobots(request);
     return new Response("Not Found", { status: 404 });
@@ -212,6 +213,80 @@ async function handleAPI(request, env, path, cors, cfg) {
       return new Response(JSON.stringify({ ok: true, token: btoa(cfg.ADMIN_PASSWORD) }), { headers });
     }
     return new Response(JSON.stringify({ ok: false, error: "비밀번호 틀림" }), { status: 401, headers });
+  }
+
+  // ── 신청 폼 설정 조회 ──
+  if (path === "/api/form-config" && request.method === "GET") {
+    const raw = await env.BLOG_KV.get("form_config");
+    const def = {
+      popup_enabled: false, popup_trigger: "button", popup_delay: 5,
+      fixed_enabled: true, title: "블로그 제작 신청",
+      subtitle: "애드센스 승인용 블로그를 빠르게 만들어드립니다",
+      fields: [
+        {id:"name", label:"이름", type:"text", placeholder:"홍길동", required:true},
+        {id:"contact", label:"연락처 (카카오톡 ID or 전화번호)", type:"text", placeholder:"kakao123", required:true},
+        {id:"blog_name", label:"원하는 블로그 이름", type:"text", placeholder:"내 블로그", required:true},
+        {id:"color", label:"선호 색상", type:"select", options:["라임(#b3ff00)","시안(#00d4ff)","오렌지(#ff6b00)","핑크(#ff3b8f)","퍼플(#7c3aed)","직접 지정"], required:false},
+        {id:"memo", label:"기타 요청사항", type:"textarea", placeholder:"원하시는 내용을 자유롭게 적어주세요", required:false}
+      ],
+      submit_text: "신청하기",
+      success_msg: "신청이 완료되었습니다! 24시간 이내에 연락드리겠습니다.",
+      button_text: "📋 블로그 제작 신청",
+      button_pos: "right"
+    };
+    const fc = raw ? {...def, ...JSON.parse(raw)} : def;
+    return new Response(JSON.stringify({ok:true, config:fc}), {headers});
+  }
+
+  // ── 신청 폼 설정 저장 ──
+  if (path === "/api/form-config" && request.method === "POST") {
+    if (!checkAuth(request, cfg)) return new Response(JSON.stringify({ok:false, error:"인증 필요"}), {status:401, headers});
+    const body = await request.json();
+    await env.BLOG_KV.put("form_config", JSON.stringify(body));
+    return new Response(JSON.stringify({ok:true}), {headers});
+  }
+
+  // ── 신청 제출 ──
+  if (path === "/api/form-submit" && request.method === "POST") {
+    const body = await request.json();
+    const id = "sub_" + Date.now();
+    const now = new Date().toISOString();
+    const sub = {id, data:body, createdAt:now, status:"new"};
+    await env.BLOG_KV.put("submission:" + id, JSON.stringify(sub));
+    const listRaw = await env.BLOG_KV.get("submission_list");
+    const list = listRaw ? JSON.parse(listRaw) : [];
+    list.unshift({id, name:body.name||"(이름없음)", contact:body.contact||"", blog_name:body.blog_name||"", createdAt:now, status:"new"});
+    await env.BLOG_KV.put("submission_list", JSON.stringify(list));
+    return new Response(JSON.stringify({ok:true}), {headers});
+  }
+
+  // ── 신청 목록 조회 ──
+  if (path === "/api/submissions" && request.method === "GET") {
+    if (!checkAuth(request, cfg)) return new Response(JSON.stringify({ok:false, error:"인증 필요"}), {status:401, headers});
+    const listRaw = await env.BLOG_KV.get("submission_list");
+    const list = listRaw ? JSON.parse(listRaw) : [];
+    return new Response(JSON.stringify({ok:true, submissions:list}), {headers});
+  }
+
+  // ── 신청 상세 조회 ──
+  if (path.startsWith("/api/submissions/") && request.method === "GET") {
+    if (!checkAuth(request, cfg)) return new Response(JSON.stringify({ok:false, error:"인증 필요"}), {status:401, headers});
+    const id = path.replace("/api/submissions/", "");
+    const raw = await env.BLOG_KV.get("submission:" + id);
+    if (!raw) return new Response(JSON.stringify({ok:false, error:"없음"}), {status:404, headers});
+    return new Response(JSON.stringify({ok:true, submission:JSON.parse(raw)}), {headers});
+  }
+
+  // ── 신청 삭제 ──
+  if (path.startsWith("/api/submissions/") && request.method === "DELETE") {
+    if (!checkAuth(request, cfg)) return new Response(JSON.stringify({ok:false, error:"인증 필요"}), {status:401, headers});
+    const id = path.replace("/api/submissions/", "");
+    await env.BLOG_KV.delete("submission:" + id);
+    const listRaw = await env.BLOG_KV.get("submission_list");
+    let list = listRaw ? JSON.parse(listRaw) : [];
+    list = list.filter(s => s.id !== id);
+    await env.BLOG_KV.put("submission_list", JSON.stringify(list));
+    return new Response(JSON.stringify({ok:true}), {headers});
   }
 
   return new Response(JSON.stringify({ error: "Not Found" }), { status: 404, headers });
@@ -399,7 +474,7 @@ function getIndexHTML(cfg) {
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${cfg.ADSENSE_CLIENT}" crossorigin="anonymous"><\/script>
-<style>${commonCSS()}${accentCSS(cfg.accent)}${css}</style></head><body>
+<style>${commonCSS()}${accentCSS(cfg.accent)}${css}` + formPopupCSS() + `</style></head><body>
 ${headerHTML(cfg, '<a href="/admin">관리</a>')}
 <main class="idx-wrap">
   ${adUnit(cfg, cfg.ADSENSE_SLOT_TOP)}
@@ -495,6 +570,8 @@ function buildPagi(total,limit,cur){
   }).join('');
 }
 loadCats();loadPosts();
+` + formPopupJS() + `
+initForm(null,true);
 <\/script></body></html>`;
 }
 
@@ -531,7 +608,7 @@ function getPostHTML(cfg, postId) {
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${cfg.ADSENSE_CLIENT}" crossorigin="anonymous"><\/script>
-<style>${commonCSS()}${accentCSS(cfg.accent)}${css}</style></head><body>
+<style>${commonCSS()}${accentCSS(cfg.accent)}${css}` + formPopupCSS() + `</style></head><body>
 ${headerHTML(cfg)}
 <div class="post-wrap">
   <a href="/" class="back-lnk">&#8592; 목록으로</a>
@@ -563,6 +640,8 @@ async function loadPost(){
   }catch(e){document.getElementById('postBody').innerHTML='<div class="p-err">오류가 발생했습니다</div>';}
 }
 loadPost();
+` + formPopupJS() + `
+initForm(null,true);
 <\/script></body></html>`;
 }
 
@@ -682,12 +761,18 @@ function getAdminHTML(cfg) {
     'function showTab(t){',
     '  document.getElementById("tListBtn").classList.toggle("on",t==="list");',
     '  document.getElementById("tWriteBtn").classList.toggle("on",t==="write");',
+    '  document.getElementById("tSubBtn").classList.toggle("on",t==="subs");',
+    '  document.getElementById("tFormBtn").classList.toggle("on",t==="form");',
     '  document.getElementById("tSetBtn").classList.toggle("on",t==="settings");',
     '  document.getElementById("tabList").classList.toggle("hidden",t!=="list");',
     '  document.getElementById("tabWrite").classList.toggle("hidden",t!=="write");',
+    '  document.getElementById("tabSubs").classList.toggle("hidden",t!=="subs");',
+    '  document.getElementById("tabForm").classList.toggle("hidden",t!=="form");',
     '  document.getElementById("tabSettings").classList.toggle("hidden",t!=="settings");',
     '  if(t==="list")loadAPosts();',
     '  if(t==="write")populateCatDatalist();',
+    '  if(t==="subs")loadSubs();',
+    '  if(t==="form")loadFormConfig();',
     '}',
     'async function loadCats(){',
     '  try{var r=await fetch("/api/categories"),d=await r.json();renderCats(d.categories||[]);}catch(e){}',
@@ -820,6 +905,60 @@ function getAdminHTML(cfg) {
     '    else{alert("저장했습니다. 즉시 반영됩니다.");location.reload();}',
     '  }else alert("오류: "+(d.error||"저장 실패"));',
     '}',
+    'async function loadSubs(){',
+    '  try{',
+    '    var r=await fetch("/api/submissions",{headers:{"Authorization":"Bearer "+tok}}),d=await r.json();',
+    '    document.getElementById("subCnt").textContent=d.submissions?d.submissions.length:0;',
+    '    var el=document.getElementById("aSubList");',
+    '    if(!d.submissions||!d.submissions.length){el.innerHTML="<div class=\"p-empty\">신청 내역이 없습니다</div>";return;}',
+    '    el.innerHTML=d.submissions.map(function(s){',
+    '      var dt=new Date(s.createdAt).toLocaleString("ko-KR");',
+    '      var statusColor=s.status==="new"?"color:var(--ac)":"color:var(--t3)";',
+    '      return "<div class=\"pi\"><span class=\"pi-cat\" style=\""+statusColor+"\">"+s.status+"</span><div class=\"pi-ttl\">"+s.name+" / "+s.contact+" / "+s.blog_name+"</div><span class=\"pi-dt\">"+dt+"</span><div class=\"pi-acts\"><button class=\"btn btn-dl btn-sm\" data-id=\""+s.id+"\">삭제</button></div></div>";',
+    '    }).join("");',
+    '    el.onclick=function(e){var b=e.target.closest("button[data-id]");if(b)delSub(b.dataset.id);};',
+    '  }catch(e){}',
+    '}',
+    'async function delSub(id){',
+    '  if(!confirm("이 신청을 삭제할까요?"))return;',
+    '  await fetch("/api/submissions/"+id,{method:"DELETE",headers:{"Authorization":"Bearer "+tok}});',
+    '  loadSubs();',
+    '}',
+    'async function loadFormConfig(){',
+    '  try{',
+    '    var r=await fetch("/api/form-config"),d=await r.json();',
+    '    if(!d.ok)return;',
+    '    var fc=d.config;',
+    '    var ge=function(id){var el=document.getElementById(id);return el;};',
+    '    if(ge("fPopupEnabled"))ge("fPopupEnabled").value=fc.popup_enabled?"1":"0";',
+    '    if(ge("fPopupTrigger"))ge("fPopupTrigger").value=fc.popup_trigger||"button";',
+    '    if(ge("fPopupDelay"))ge("fPopupDelay").value=fc.popup_delay||5;',
+    '    if(ge("fBtnPos"))ge("fBtnPos").value=fc.button_pos||"right";',
+    '    if(ge("fBtnText"))ge("fBtnText").value=fc.button_text||"블로그 제작 신청";',
+    '    if(ge("fFixedEnabled"))ge("fFixedEnabled").value=fc.fixed_enabled?"1":"0";',
+    '    if(ge("fSubmitText"))ge("fSubmitText").value=fc.submit_text||"신청하기";',
+    '    if(ge("fTitle"))ge("fTitle").value=fc.title||"블로그 제작 신청";',
+    '    if(ge("fSubtitle"))ge("fSubtitle").value=fc.subtitle||"";',
+    '    if(ge("fSuccessMsg"))ge("fSuccessMsg").value=fc.success_msg||"";',
+    '    window._adminFc=fc;',
+    '  }catch(e){}',
+    '}',
+    'async function saveFormConfig(){',
+    '  var fc=window._adminFc||{};',
+    '  fc.popup_enabled=document.getElementById("fPopupEnabled").value==="1";',
+    '  fc.popup_trigger=document.getElementById("fPopupTrigger").value;',
+    '  fc.popup_delay=parseInt(document.getElementById("fPopupDelay").value)||5;',
+    '  fc.button_pos=document.getElementById("fBtnPos").value;',
+    '  fc.button_text=document.getElementById("fBtnText").value;',
+    '  fc.fixed_enabled=document.getElementById("fFixedEnabled").value==="1";',
+    '  fc.submit_text=document.getElementById("fSubmitText").value;',
+    '  fc.title=document.getElementById("fTitle").value;',
+    '  fc.subtitle=document.getElementById("fSubtitle").value;',
+    '  fc.success_msg=document.getElementById("fSuccessMsg").value;',
+    '  var r=await fetch("/api/form-config",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+tok},body:JSON.stringify(fc)});',
+    '  var d=await r.json();',
+    '  if(d.ok)alert("저장했습니다. 블로그에 즉시 반영됩니다.");else alert("오류: "+(d.error||"저장 실패"));',
+    '}',
     'if(tok)showAdmin();'
   ].join('\n');
 
@@ -873,6 +1012,8 @@ function getAdminHTML(cfg) {
           '<div class="tab-nav">' +
             '<button class="tab-btn on" id="tListBtn" onclick="showTab(\'list\')">글 목록</button>' +
             '<button class="tab-btn" id="tWriteBtn" onclick="showTab(\'write\')">글 작성</button>' +
+            '<button class="tab-btn" id="tSubBtn" onclick="showTab(\'subs\')">신청 목록</button>' +
+            '<button class="tab-btn" id="tFormBtn" onclick="showTab(\'form\')">신청 폼 설정</button>' +
             '<button class="tab-btn" id="tSetBtn" onclick="showTab(\'settings\')">설정</button>' +
           '</div>' +
           '<div id="tabList"><div class="panel">' +
@@ -893,6 +1034,38 @@ function getAdminHTML(cfg) {
             '</div>' +
             '<div class="fg2"><label class="fl">내용 (HTML 가능)</label><textarea class="fta" id="pContent" placeholder="글 내용을 입력하세요..."></textarea></div>' +
             '<div class="f-acts"><button class="btn btn-ok" onclick="savePost()">저장하기</button><button class="btn btn-gh" onclick="clearForm()">초기화</button></div>' +
+          '</div></div>' +
+          '<div id="tabSubs" class="hidden">' +
+            '<div class="panel"><div class="p-hd"><span class="p-ttl">신청 목록</span><span class="cnt-badge" id="subCnt">0</span></div>' +
+            '<div id="aSubList"><div class="p-empty">불러오는 중...</div></div></div>' +
+          '</div>' +
+          '<div id="tabForm" class="hidden"><div class="set-panel">' +
+            '<div class="set-sec"><div class="set-sec-ttl">팝업 설정</div>' +
+              '<div class="fg">' +
+                '<div><label class="fl">팝업 사용</label><select class="fi" id="fPopupEnabled"><option value="0">비활성</option><option value="1">활성</option></select></div>' +
+                '<div><label class="fl">팝업 트리거</label><select class="fi" id="fPopupTrigger"><option value="button">버튼만</option><option value="timer">N초 후 자동</option><option value="scroll">스크롤 시</option></select></div>' +
+              '</div>' +
+              '<div class="fg2"><label class="fl">자동 팝업 딜레이 (초)</label><input class="fi" id="fPopupDelay" type="number" min="1" max="60" value="5"></div>' +
+              '<div class="fg">' +
+                '<div><label class="fl">버튼 위치</label><select class="fi" id="fBtnPos"><option value="right">오른쪽</option><option value="left">왼쪽</option></select></div>' +
+                '<div><label class="fl">버튼 텍스트</label><input class="fi" id="fBtnText" value="📋 블로그 제작 신청"></div>' +
+              '</div>' +
+            '</div>' +
+            '<div class="set-sec"><div class="set-sec-ttl">고정 폼 설정</div>' +
+              '<div class="fg">' +
+                '<div><label class="fl">고정 폼 사용</label><select class="fi" id="fFixedEnabled"><option value="1">활성 (/order)</option><option value="0">비활성</option></select></div>' +
+                '<div><label class="fl">제출 버튼 텍스트</label><input class="fi" id="fSubmitText" value="신청하기"></div>' +
+              '</div>' +
+            '</div>' +
+            '<div class="set-sec"><div class="set-sec-ttl">폼 내용 설정</div>' +
+              '<div class="fg2"><label class="fl">폼 제목</label><input class="fi" id="fTitle" value="블로그 제작 신청"></div>' +
+              '<div class="fg2"><label class="fl">폼 소개</label><input class="fi" id="fSubtitle" value="애드센스 승인용 블로그를 빠르게 만들어드립니다"></div>' +
+              '<div class="fg2"><label class="fl">완료 메시지</label><input class="fi" id="fSuccessMsg" value="신청이 완료되었습니다! 24시간 이내에 연락드리겠습니다."></div>' +
+            '</div>' +
+            '<div class="f-acts" style="padding:20px 22px">' +
+              '<button class="btn btn-ok" onclick="saveFormConfig()">저장</button>' +
+              '<a href="/order" target="_blank" class="btn btn-gh" style="text-decoration:none">신청 페이지 미리보기 ↗</a>' +
+            '</div>' +
           '</div></div>' +
           '<div id="tabSettings" class="hidden"><div class="set-panel">' +
             '<div class="set-sec"><div class="set-sec-ttl">기본 설정</div>' +
@@ -951,6 +1124,179 @@ function getAdminHTML(cfg) {
 
   return html;
 }
+
+// ── 신청 폼 팝업 & 고정 폼 공통 JS/CSS ──────────────────────────
+function formPopupCSS() {
+  return [
+    '.fp-btn{position:fixed;z-index:200;bottom:28px;padding:12px 20px;background:var(--ac);color:var(--act);border:none;font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;cursor:pointer;font-family:inherit;box-shadow:0 4px 20px rgba(0,0,0,.4);transition:transform .2s,box-shadow .2s}',
+    '.fp-btn:hover{transform:translateY(-2px);box-shadow:0 8px 28px rgba(0,0,0,.5)}',
+    '.fp-btn.right{right:28px}',
+    '.fp-btn.left{left:28px}',
+    '.fp-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:300;display:flex;align-items:center;justify-content:center;padding:20px;opacity:0;transition:opacity .25s;pointer-events:none}',
+    '.fp-overlay.show{opacity:1;pointer-events:all}',
+    '.fp-modal{background:var(--sf);width:100%;max-width:500px;border-top:3px solid var(--ac);max-height:90vh;overflow-y:auto;transform:translateY(20px);transition:transform .25s}',
+    '.fp-overlay.show .fp-modal{transform:translateY(0)}',
+    '.fp-modal-hd{padding:20px 24px 16px;border-bottom:1px solid var(--br);display:flex;align-items:flex-start;justify-content:space-between}',
+    '.fp-title{font-size:18px;font-weight:900;letter-spacing:-.3px;color:var(--t1)}',
+    '.fp-sub{font-size:12px;color:var(--t2);margin-top:4px;line-height:1.5}',
+    '.fp-close{background:none;border:none;color:var(--t2);font-size:20px;cursor:pointer;padding:0;line-height:1;transition:color .15s;flex-shrink:0;margin-left:12px}',
+    '.fp-close:hover{color:var(--t1)}',
+    '.fp-body{padding:20px 24px 24px}',
+    '.fp-field{margin-bottom:14px}',
+    '.fp-label{display:block;font-size:9px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--t2);margin-bottom:6px}',
+    '.fp-label em{color:var(--rd);font-style:normal;margin-left:2px}',
+    '.fp-input{width:100%;padding:9px 12px;border:1px solid var(--br2);background:var(--bg);color:var(--t1);font-size:13px;font-family:inherit;outline:none;transition:border-color .15s}',
+    '.fp-input:focus{border-color:var(--ac)}',
+    '.fp-select{width:100%;padding:9px 12px;border:1px solid var(--br2);background:var(--bg);color:var(--t1);font-size:13px;font-family:inherit;outline:none;transition:border-color .15s;appearance:none;cursor:pointer}',
+    '.fp-select:focus{border-color:var(--ac)}',
+    '.fp-textarea{width:100%;padding:9px 12px;border:1px solid var(--br2);background:var(--bg);color:var(--t1);font-size:13px;font-family:inherit;outline:none;resize:vertical;min-height:80px;transition:border-color .15s}',
+    '.fp-textarea:focus{border-color:var(--ac)}',
+    '.fp-submit{width:100%;padding:12px;background:var(--ac);color:var(--act);border:none;font-size:11px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;cursor:pointer;font-family:inherit;transition:opacity .15s;margin-top:4px}',
+    '.fp-submit:hover{opacity:.85}',
+    '.fp-success{text-align:center;padding:32px 20px}',
+    '.fp-success-icon{font-size:40px;margin-bottom:12px}',
+    '.fp-success-msg{font-size:14px;color:var(--t1);font-weight:700;line-height:1.6}',
+    '.fp-err{font-size:11px;color:var(--rd);margin-top:8px}',
+    '.order-wrap{max-width:600px;margin:0 auto;padding:40px 24px}',
+    '.order-hd{margin-bottom:32px}',
+    '.order-kicker{font-size:9px;font-weight:800;letter-spacing:.2em;text-transform:uppercase;color:var(--ac);margin-bottom:10px}',
+    '.order-title{font-size:32px;font-weight:900;letter-spacing:-1px;line-height:1.1;margin-bottom:8px}',
+    '.order-sub{font-size:14px;color:var(--t2);line-height:1.7}',
+    '.order-panel{background:var(--sf);border-top:3px solid var(--ac);padding:28px}',
+    '@media(max-width:480px){.fp-modal{max-height:100vh;border-radius:0}.fp-overlay{align-items:flex-end;padding:0}.fp-btn.right{right:16px;bottom:16px}.fp-btn.left{left:16px;bottom:16px}}'
+  ].join('');
+}
+
+function formPopupJS(isAdmin) {
+  isAdmin = isAdmin || false;
+  return [
+    'async function initForm(containerId, isPopup) {',
+    '  try {',
+    '    var r = await fetch("/api/form-config"), d = await r.json();',
+    '    if (!d.ok) return;',
+    '    var fc = d.config;',
+    '    if (isPopup) {',
+    '      if (!fc.popup_enabled && !isAdmin) return;',  
+    '      var btn = document.createElement("button");',
+    '      btn.className = "fp-btn " + (fc.button_pos || "right");',
+    '      btn.textContent = fc.button_text || "블로그 제작 신청";',
+    '      btn.onclick = function() { openFormModal(fc); };',
+    '      document.body.appendChild(btn);',
+    '      if (fc.popup_trigger === "timer" && fc.popup_delay > 0) {',
+    '        setTimeout(function() { openFormModal(fc); }, fc.popup_delay * 1000);',
+    '      } else if (fc.popup_trigger === "scroll") {',
+    '        var scrolled = false;',
+    '        window.addEventListener("scroll", function() {',
+    '          if (!scrolled && window.scrollY > 300) { scrolled = true; openFormModal(fc); }',
+    '        });',
+    '      }',
+    '    } else if (containerId) {',
+    '      if (!fc.fixed_enabled && !isAdmin) return;',
+    '      renderFormInline(document.getElementById(containerId), fc);',
+    '    }',
+    '  } catch(e) {}',
+    '}',
+    'function buildFormFields(fc) {',
+    '  return (fc.fields || []).map(function(f) {',
+    '    var req = f.required ? "<em>*</em>" : "";',
+    '    var inp = "";',
+    '    if (f.type === "textarea") {',
+    '      inp = "<textarea class=\"fp-textarea\" id=\"ff_" + f.id + "\" placeholder=\"" + (f.placeholder||"") + "\"></textarea>";',
+    '    } else if (f.type === "select") {',
+    '      var opts = (f.options||[]).map(function(o) { return "<option>" + o + "</option>"; }).join("");',
+    '      inp = "<select class=\"fp-select\" id=\"ff_" + f.id + "\"><option value=\"\">선택해주세요</option>" + opts + "</select>";',
+    '    } else {',
+    '      inp = "<input class=\"fp-input\" id=\"ff_" + f.id + "\" type=\"" + (f.type||"text") + "\" placeholder=\"" + (f.placeholder||"") + "\">";',
+    '    }',
+    '    return "<div class=\"fp-field\"><label class=\"fp-label\">" + f.label + req + "</label>" + inp + "</div>";',
+    '  }).join("");',
+    '}',
+    'function getFormData(fc) {',
+    '  var data = {};',
+    '  var missing = [];',
+    '  (fc.fields || []).forEach(function(f) {',
+    '    var el = document.getElementById("ff_" + f.id);',
+    '    if (!el) return;',
+    '    data[f.id] = el.value.trim();',
+    '    if (f.required && !data[f.id]) missing.push(f.label);',
+    '  });',
+    '  return {data:data, missing:missing};',
+    '}',
+    'function openFormModal(fc) {',
+    '  var overlay = document.getElementById("fpOverlay");',
+    '  if (overlay) { overlay.classList.add("show"); return; }',
+    '  overlay = document.createElement("div");',
+    '  overlay.id = "fpOverlay";',
+    '  overlay.className = "fp-overlay";',
+    '  overlay.innerHTML = '<div class="fp-modal">' +',
+    '    '<div class="fp-modal-hd"><div><div class="fp-title">' + fc.title + '</div><div class="fp-sub">' + fc.subtitle + '</div></div>' +',
+    '    '<button class="fp-close" onclick="closeFormModal()">&#x2715;</button></div>' +',
+    '    '<div class="fp-body"><div id="fpFields">' + buildFormFields(fc) + '</div>' +',
+    '    '<button class="fp-submit" onclick="submitForm(true)">' + fc.submit_text + '</button>' +',
+    '    '<p class="fp-err" id="fpErr"></p></div></div>';',
+    '  overlay.onclick = function(e) { if (e.target === overlay) closeFormModal(); };',
+    '  document.body.appendChild(overlay);',
+    '  overlay.offsetHeight;',
+    '  overlay.classList.add("show");',
+    '  window._fpConfig = fc;',
+    '}',
+    'function closeFormModal() {',
+    '  var o = document.getElementById("fpOverlay");',
+    '  if (o) { o.classList.remove("show"); setTimeout(function(){o.remove();},300); }',
+    '}',
+    'function renderFormInline(el, fc) {',
+    '  if (!el) return;',
+    '  window._fpConfig = fc;',
+    '  el.innerHTML = '<div class="order-panel">' + buildFormFields(fc) +',
+    '    '<button class="fp-submit" onclick="submitForm(false)">' + fc.submit_text + '</button>' +',
+    '    '<p class="fp-err" id="fpErr"></p></div>';',
+    '}',
+    'async function submitForm(isPopup) {',
+    '  var fc = window._fpConfig;',
+    '  if (!fc) return;',
+    '  var result = getFormData(fc);',
+    '  if (result.missing.length) {',
+    '    document.getElementById("fpErr").textContent = result.missing.join(", ") + " 항목을 입력해주세요.";',
+    '    return;',
+    '  }',
+    '  try {',
+    '    var r = await fetch("/api/form-submit", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(result.data)});',
+    '    var d = await r.json();',
+    '    if (d.ok) {',
+    '      var target = isPopup ? document.querySelector(".fp-body") : document.querySelector(".order-panel");',
+    '      if (target) target.innerHTML = '<div class="fp-success"><div class="fp-success-icon">✅</div><div class="fp-success-msg">' + fc.success_msg + '</div></div>';',
+    '    } else { document.getElementById("fpErr").textContent = "오류가 발생했습니다. 다시 시도해주세요."; }',
+    '  } catch(e) { document.getElementById("fpErr").textContent = "네트워크 오류. 다시 시도해주세요."; }',
+    '}'
+  ].join('\n');
+}
+
+// ── 신청 페이지 (고정 폼) ─────────────────────────────────────
+async function getOrderHTML(cfg, env) {
+  var raw = await env.BLOG_KV.get("form_config");
+  var def = {title:"블로그 제작 신청", subtitle:"애드센스 승인용 블로그를 빠르게 만들어드립니다", fixed_enabled:true, popup_enabled:false, popup_trigger:"button", popup_delay:5, button_text:"📋 블로그 제작 신청", button_pos:"right", submit_text:"신청하기", success_msg:"신청이 완료되었습니다! 24시간 이내에 연락드리겠습니다.", fields:[{id:"name",label:"이름",type:"text",placeholder:"홍길동",required:true},{id:"contact",label:"연락처 (카카오톡 ID or 전화번호)",type:"text",placeholder:"kakao123",required:true},{id:"blog_name",label:"원하는 블로그 이름",type:"text",placeholder:"내 블로그",required:true},{id:"color",label:"선호 색상",type:"select",options:["라임(#b3ff00)","시안(#00d4ff)","오렌지(#ff6b00)","핑크(#ff3b8f)","퍼플(#7c3aed)","직접 지정"],required:false},{id:"memo",label:"기타 요청사항",type:"textarea",placeholder:"원하시는 내용을 자유롭게 적어주세요",required:false}]};
+  var fc = raw ? Object.assign({}, def, JSON.parse(raw)) : def;
+
+  return '<!DOCTYPE html><html lang="ko" data-theme="dark"><head>' +
+    '<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">' +
+    '<title>블로그 제작 신청 — ' + cfg.BLOG_NAME + '</title>' +
+    '<script>(function(){var t=localStorage.getItem("bt")||"dark";document.documentElement.setAttribute("data-theme",t);})()<' + '/script>' +
+    '<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700;900&display=swap" rel="stylesheet">' +
+    '<style>' + commonCSS() + accentCSS(cfg.accent) + formPopupCSS() + '</style></head><body>' +
+    headerHTML(cfg, '') +
+    '<div class="order-wrap">' +
+      '<div class="order-hd">' +
+        '<div class="order-kicker">Blog Creation</div>' +
+        '<h1 class="order-title">' + fc.title + '</h1>' +
+        '<p class="order-sub">' + fc.subtitle + '</p>' +
+      '</div>' +
+      '<div id="orderForm"></div>' +
+    '</div>' +
+    footerHTML(cfg) +
+    '<script>' + themeJS() + '\n' + formPopupJS(false) + '\nwindow._fpConfig=null;initForm("orderForm",false);<' + '/script>' +
+    '</body></html>';
+}
+
 
 // ── 이용약관 / 개인정보처리방침 ───────────────────────────────
 function getTermsHTML(cfg) {
