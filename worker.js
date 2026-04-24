@@ -1188,6 +1188,7 @@ function formPopupCSS() {
 
 function formPopupJS() {
   var lines = [];
+  // initForm
   lines.push('async function initForm(containerId, isPopup) {');
   lines.push('  try {');
   lines.push('    var r = await fetch("/api/form-config"), d = await r.json();');
@@ -1214,21 +1215,32 @@ function formPopupJS() {
   lines.push('    }');
   lines.push('  } catch(e) {}');
   lines.push('}');
+  // buildFormFields - DOM based, no HTML string quoting
   lines.push('function buildFormFields(fc) {');
-  lines.push('  return (fc.fields || []).map(function(f) {');
-  lines.push('    var req = f.required ? "<em>*</em>" : "";');
-  lines.push('    var inp = "";');
+  lines.push('  var wrap = document.createDocumentFragment();');
+  lines.push('  (fc.fields || []).forEach(function(f) {');
+  lines.push('    var div = document.createElement("div"); div.className = "fp-field";');
+  lines.push('    var lbl = document.createElement("label"); lbl.className = "fp-label";');
+  lines.push('    lbl.innerHTML = f.label + (f.required ? "<em>*</em>" : "");');
+  lines.push('    var inp;');
   lines.push('    if (f.type === "textarea") {');
-  lines.push('      inp = "<textarea class=\"fp-textarea\" id=\"ff_" + f.id + "\" placeholder=\"" + (f.placeholder||"") + "\"></textarea>";');
+  lines.push('      inp = document.createElement("textarea"); inp.className = "fp-textarea";');
+  lines.push('      inp.placeholder = f.placeholder || "";');
   lines.push('    } else if (f.type === "select") {');
-  lines.push('      var opts = (f.options||[]).map(function(o) { return "<option>" + o + "</option>"; }).join("");');
-  lines.push('      inp = "<select class=\"fp-select\" id=\"ff_" + f.id + "\"><option value=\"\">선택해주세요</option>" + opts + "</select>";');
+  lines.push('      inp = document.createElement("select"); inp.className = "fp-select";');
+  lines.push('      var def = document.createElement("option"); def.value = ""; def.textContent = "선택해주세요"; inp.appendChild(def);');
+  lines.push('      (f.options||[]).forEach(function(o){var opt=document.createElement("option");opt.textContent=o;inp.appendChild(opt);});');
   lines.push('    } else {');
-  lines.push('      inp = "<input class=\"fp-input\" id=\"ff_" + f.id + "\" type=\"" + (f.type||"text") + "\" placeholder=\"" + (f.placeholder||"") + "\">";');
+  lines.push('      inp = document.createElement("input"); inp.className = "fp-input";');
+  lines.push('      inp.type = f.type || "text"; inp.placeholder = f.placeholder || "";');
   lines.push('    }');
-  lines.push('    return "<div class=\"fp-field\"><label class=\"fp-label\">" + f.label + req + "</label>" + inp + "</div>";');
-  lines.push('  }).join("");');
+  lines.push('    inp.id = "ff_" + f.id;');
+  lines.push('    div.appendChild(lbl); div.appendChild(inp);');
+  lines.push('    wrap.appendChild(div);');
+  lines.push('  });');
+  lines.push('  return wrap;');
   lines.push('}');
+  // getFormData
   lines.push('function getFormData(fc) {');
   lines.push('  var data = {}, missing = [];');
   lines.push('  (fc.fields || []).forEach(function(f) {');
@@ -1239,38 +1251,57 @@ function formPopupJS() {
   lines.push('  });');
   lines.push('  return {data:data, missing:missing};');
   lines.push('}');
+  // openFormModal - DOM based
   lines.push('function openFormModal(fc) {');
-  lines.push('  var overlay = document.getElementById("fpOverlay");');
-  lines.push('  if (overlay) { overlay.classList.add("show"); return; }');
-  lines.push('  overlay = document.createElement("div");');
-  lines.push('  overlay.id = "fpOverlay";');
-  lines.push('  overlay.className = "fp-overlay";');
-  lines.push('  var html = "";');
-  lines.push('  html += "<div class=\"fp-modal\">";');
-  lines.push('  html += "<div class=\"fp-modal-hd\"><div><div class=\"fp-title\">" + fc.title + "</div><div class=\"fp-sub\">" + fc.subtitle + "</div></div>";');
-  lines.push('  html += "<button class=\"fp-close\" onclick=\"closeFormModal()\">&#x2715;</button></div>";');
-  lines.push('  html += "<div class=\"fp-body\"><div id=\"fpFields\">" + buildFormFields(fc) + "</div>";');
-  lines.push('  html += "<button class=\"fp-submit\" onclick=\"submitForm(true)\">" + fc.submit_text + "</button>";');
-  lines.push('  html += "<p class=\"fp-err\" id=\"fpErr\"></p></div></div>";');
-  lines.push('  overlay.innerHTML = html;');
+  lines.push('  var existing = document.getElementById("fpOverlay");');
+  lines.push('  if (existing) { existing.classList.add("show"); return; }');
+  lines.push('  window._fpConfig = fc;');
+  lines.push('  var overlay = document.createElement("div");');
+  lines.push('  overlay.id = "fpOverlay"; overlay.className = "fp-overlay";');
+  lines.push('  var modal = document.createElement("div"); modal.className = "fp-modal";');
+  lines.push('  var hd = document.createElement("div"); hd.className = "fp-modal-hd";');
+  lines.push('  var hdInner = document.createElement("div");');
+  lines.push('  var ttl = document.createElement("div"); ttl.className = "fp-title"; ttl.textContent = fc.title;');
+  lines.push('  var sub = document.createElement("div"); sub.className = "fp-sub"; sub.textContent = fc.subtitle;');
+  lines.push('  hdInner.appendChild(ttl); hdInner.appendChild(sub);');
+  lines.push('  var closeBtn = document.createElement("button"); closeBtn.className = "fp-close"; closeBtn.innerHTML = "&#x2715;";');
+  lines.push('  closeBtn.onclick = function() { closeFormModal(); };');
+  lines.push('  hd.appendChild(hdInner); hd.appendChild(closeBtn);');
+  lines.push('  var body = document.createElement("div"); body.className = "fp-body";');
+  lines.push('  var fieldsWrap = document.createElement("div"); fieldsWrap.id = "fpFields";');
+  lines.push('  fieldsWrap.appendChild(buildFormFields(fc));');
+  lines.push('  var submitBtn = document.createElement("button"); submitBtn.className = "fp-submit";');
+  lines.push('  submitBtn.textContent = fc.submit_text || "신청하기";');
+  lines.push('  submitBtn.onclick = function() { submitForm(true); };');
+  lines.push('  var errP = document.createElement("p"); errP.className = "fp-err"; errP.id = "fpErr";');
+  lines.push('  body.appendChild(fieldsWrap); body.appendChild(submitBtn); body.appendChild(errP);');
+  lines.push('  modal.appendChild(hd); modal.appendChild(body);');
+  lines.push('  overlay.appendChild(modal);');
   lines.push('  overlay.onclick = function(e) { if (e.target === overlay) closeFormModal(); };');
   lines.push('  document.body.appendChild(overlay);');
   lines.push('  overlay.offsetHeight;');
   lines.push('  overlay.classList.add("show");');
-  lines.push('  window._fpConfig = fc;');
   lines.push('}');
+  // closeFormModal
   lines.push('function closeFormModal() {');
   lines.push('  var o = document.getElementById("fpOverlay");');
   lines.push('  if (o) { o.classList.remove("show"); setTimeout(function(){o.remove();},300); }');
   lines.push('}');
+  // renderFormInline - DOM based
   lines.push('function renderFormInline(el, fc) {');
   lines.push('  if (!el) return;');
   lines.push('  window._fpConfig = fc;');
-  lines.push('  var html = "<div class=\"order-panel\">" + buildFormFields(fc);');
-  lines.push('  html += "<button class=\"fp-submit\" onclick=\"submitForm(false)\">" + fc.submit_text + "</button>";');
-  lines.push('  html += "<p class=\"fp-err\" id=\"fpErr\"></p></div>";');
-  lines.push('  el.innerHTML = html;');
+  lines.push('  el.innerHTML = "";');
+  lines.push('  var panel = document.createElement("div"); panel.className = "order-panel";');
+  lines.push('  panel.appendChild(buildFormFields(fc));');
+  lines.push('  var submitBtn = document.createElement("button"); submitBtn.className = "fp-submit";');
+  lines.push('  submitBtn.textContent = fc.submit_text || "신청하기";');
+  lines.push('  submitBtn.onclick = function() { submitForm(false); };');
+  lines.push('  var errP = document.createElement("p"); errP.className = "fp-err"; errP.id = "fpErr";');
+  lines.push('  panel.appendChild(submitBtn); panel.appendChild(errP);');
+  lines.push('  el.appendChild(panel);');
   lines.push('}');
+  // submitForm
   lines.push('async function submitForm(isPopup) {');
   lines.push('  var fc = window._fpConfig;');
   lines.push('  if (!fc) return;');
@@ -1283,11 +1314,16 @@ function formPopupJS() {
   lines.push('    var r = await fetch("/api/form-submit", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(result.data)});');
   lines.push('    var d = await r.json();');
   lines.push('    if (d.ok) {');
-  lines.push('      var sel = isPopup ? ".fp-body" : ".order-panel";');
-  lines.push('      var target = document.querySelector(sel);');
-  lines.push('      if (target) target.innerHTML = "<div class=\"fp-success\"><div class=\"fp-success-icon\">\u2705</div><div class=\"fp-success-msg\">" + fc.success_msg + "</div></div>";');
-  lines.push('    } else { document.getElementById("fpErr").textContent = "오류가 발생했습니다."; }');
-  lines.push('  } catch(e) { document.getElementById("fpErr").textContent = "네트워크 오류."; }');
+  lines.push('      var sel = isPopup ? document.querySelector(".fp-body") : document.querySelector(".order-panel");');
+  lines.push('      if (sel) {');
+  lines.push('        sel.innerHTML = "";');
+  lines.push('        var ico = document.createElement("div"); ico.className = "fp-success-icon"; ico.textContent = "✅";');
+  lines.push('        var msg = document.createElement("div"); msg.className = "fp-success-msg"; msg.textContent = fc.success_msg;');
+  lines.push('        var wrap = document.createElement("div"); wrap.className = "fp-success";');
+  lines.push('        wrap.appendChild(ico); wrap.appendChild(msg); sel.appendChild(wrap);');
+  lines.push('      }');
+  lines.push('    } else { document.getElementById("fpErr").textContent = "오류가 발생했습니다. 다시 시도해주세요."; }');
+  lines.push('  } catch(e) { document.getElementById("fpErr").textContent = "네트워크 오류. 다시 시도해주세요."; }');
   lines.push('}');
   return lines.join('\n');
 }
