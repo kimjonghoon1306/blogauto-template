@@ -1314,7 +1314,12 @@ async function getOrderHTML(cfg, env) {
       '<div id="orderForm"></div>' +
     '</div>' +
     footerHTML(cfg) +
-    '<script>' + themeJS() + '\n' + formPopupJS(false) + '\nwindow._fpConfig=null;initForm("orderForm",false);<' + '/script>' +
+    '<script>' + themeJS() + '\n' + formPopupJS() +
+    '\nwindow._fpConfig=' + JSON.stringify(fc) + ';' +
+    '\ndocument.addEventListener("DOMContentLoaded",function(){' +
+    '  renderFormInline(document.getElementById("orderForm"),' + JSON.stringify(fc) + ');' +
+    '});' +
+    '<' + '/script>' +
     '</body></html>';
 }
 
