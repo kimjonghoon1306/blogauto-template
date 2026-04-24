@@ -1167,111 +1167,113 @@ function formPopupCSS() {
   ].join('');
 }
 
-function formPopupJS(isAdmin) {
-  isAdmin = isAdmin || false;
-  return [
-    'async function initForm(containerId, isPopup) {',
-    '  try {',
-    '    var r = await fetch("/api/form-config"), d = await r.json();',
-    '    if (!d.ok) return;',
-    '    var fc = d.config;',
-    '    if (isPopup) {',
-    '      if (!fc.popup_enabled && !isAdmin) return;',  
-    '      var btn = document.createElement("button");',
-    '      btn.className = "fp-btn " + (fc.button_pos || "right");',
-    '      btn.textContent = fc.button_text || "블로그 제작 신청";',
-    '      btn.onclick = function() { openFormModal(fc); };',
-    '      document.body.appendChild(btn);',
-    '      if (fc.popup_trigger === "timer" && fc.popup_delay > 0) {',
-    '        setTimeout(function() { openFormModal(fc); }, fc.popup_delay * 1000);',
-    '      } else if (fc.popup_trigger === "scroll") {',
-    '        var scrolled = false;',
-    '        window.addEventListener("scroll", function() {',
-    '          if (!scrolled && window.scrollY > 300) { scrolled = true; openFormModal(fc); }',
-    '        });',
-    '      }',
-    '    } else if (containerId) {',
-    '      if (!fc.fixed_enabled && !isAdmin) return;',
-    '      renderFormInline(document.getElementById(containerId), fc);',
-    '    }',
-    '  } catch(e) {}',
-    '}',
-    'function buildFormFields(fc) {',
-    '  return (fc.fields || []).map(function(f) {',
-    '    var req = f.required ? "<em>*</em>" : "";',
-    '    var inp = "";',
-    '    if (f.type === "textarea") {',
-    '      inp = "<textarea class=\"fp-textarea\" id=\"ff_" + f.id + "\" placeholder=\"" + (f.placeholder||"") + "\"></textarea>";',
-    '    } else if (f.type === "select") {',
-    '      var opts = (f.options||[]).map(function(o) { return "<option>" + o + "</option>"; }).join("");',
-    '      inp = "<select class=\"fp-select\" id=\"ff_" + f.id + "\"><option value=\"\">선택해주세요</option>" + opts + "</select>";',
-    '    } else {',
-    '      inp = "<input class=\"fp-input\" id=\"ff_" + f.id + "\" type=\"" + (f.type||"text") + "\" placeholder=\"" + (f.placeholder||"") + "\">";',
-    '    }',
-    '    return "<div class=\"fp-field\"><label class=\"fp-label\">" + f.label + req + "</label>" + inp + "</div>";',
-    '  }).join("");',
-    '}',
-    'function getFormData(fc) {',
-    '  var data = {};',
-    '  var missing = [];',
-    '  (fc.fields || []).forEach(function(f) {',
-    '    var el = document.getElementById("ff_" + f.id);',
-    '    if (!el) return;',
-    '    data[f.id] = el.value.trim();',
-    '    if (f.required && !data[f.id]) missing.push(f.label);',
-    '  });',
-    '  return {data:data, missing:missing};',
-    '}',
-    'function openFormModal(fc) {',
-    '  var overlay = document.getElementById("fpOverlay");',
-    '  if (overlay) { overlay.classList.add("show"); return; }',
-    '  overlay = document.createElement("div");',
-    '  overlay.id = "fpOverlay";',
-    '  overlay.className = "fp-overlay";',
-    '  overlay.innerHTML = '<div class="fp-modal">' +',
-    '    '<div class="fp-modal-hd"><div><div class="fp-title">' + fc.title + '</div><div class="fp-sub">' + fc.subtitle + '</div></div>' +',
-    '    '<button class="fp-close" onclick="closeFormModal()">&#x2715;</button></div>' +',
-    '    '<div class="fp-body"><div id="fpFields">' + buildFormFields(fc) + '</div>' +',
-    '    '<button class="fp-submit" onclick="submitForm(true)">' + fc.submit_text + '</button>' +',
-    '    '<p class="fp-err" id="fpErr"></p></div></div>';',
-    '  overlay.onclick = function(e) { if (e.target === overlay) closeFormModal(); };',
-    '  document.body.appendChild(overlay);',
-    '  overlay.offsetHeight;',
-    '  overlay.classList.add("show");',
-    '  window._fpConfig = fc;',
-    '}',
-    'function closeFormModal() {',
-    '  var o = document.getElementById("fpOverlay");',
-    '  if (o) { o.classList.remove("show"); setTimeout(function(){o.remove();},300); }',
-    '}',
-    'function renderFormInline(el, fc) {',
-    '  if (!el) return;',
-    '  window._fpConfig = fc;',
-    '  el.innerHTML = '<div class="order-panel">' + buildFormFields(fc) +',
-    '    '<button class="fp-submit" onclick="submitForm(false)">' + fc.submit_text + '</button>' +',
-    '    '<p class="fp-err" id="fpErr"></p></div>';',
-    '}',
-    'async function submitForm(isPopup) {',
-    '  var fc = window._fpConfig;',
-    '  if (!fc) return;',
-    '  var result = getFormData(fc);',
-    '  if (result.missing.length) {',
-    '    document.getElementById("fpErr").textContent = result.missing.join(", ") + " 항목을 입력해주세요.";',
-    '    return;',
-    '  }',
-    '  try {',
-    '    var r = await fetch("/api/form-submit", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(result.data)});',
-    '    var d = await r.json();',
-    '    if (d.ok) {',
-    '      var target = isPopup ? document.querySelector(".fp-body") : document.querySelector(".order-panel");',
-    '      if (target) target.innerHTML = '<div class="fp-success"><div class="fp-success-icon">✅</div><div class="fp-success-msg">' + fc.success_msg + '</div></div>';',
-    '    } else { document.getElementById("fpErr").textContent = "오류가 발생했습니다. 다시 시도해주세요."; }',
-    '  } catch(e) { document.getElementById("fpErr").textContent = "네트워크 오류. 다시 시도해주세요."; }',
-    '}'
-  ].join('\n');
+function formPopupJS() {
+  var lines = [];
+  lines.push('async function initForm(containerId, isPopup) {');
+  lines.push('  try {');
+  lines.push('    var r = await fetch("/api/form-config"), d = await r.json();');
+  lines.push('    if (!d.ok) return;');
+  lines.push('    var fc = d.config;');
+  lines.push('    if (isPopup) {');
+  lines.push('      if (!fc.popup_enabled) return;');
+  lines.push('      var btn = document.createElement("button");');
+  lines.push('      btn.className = "fp-btn " + (fc.button_pos || "right");');
+  lines.push('      btn.textContent = fc.button_text || "블로그 제작 신청";');
+  lines.push('      btn.onclick = function() { openFormModal(fc); };');
+  lines.push('      document.body.appendChild(btn);');
+  lines.push('      if (fc.popup_trigger === "timer" && fc.popup_delay > 0) {');
+  lines.push('        setTimeout(function() { openFormModal(fc); }, fc.popup_delay * 1000);');
+  lines.push('      } else if (fc.popup_trigger === "scroll") {');
+  lines.push('        var scrolled = false;');
+  lines.push('        window.addEventListener("scroll", function() {');
+  lines.push('          if (!scrolled && window.scrollY > 300) { scrolled = true; openFormModal(fc); }');
+  lines.push('        });');
+  lines.push('      }');
+  lines.push('    } else if (containerId) {');
+  lines.push('      if (!fc.fixed_enabled) return;');
+  lines.push('      renderFormInline(document.getElementById(containerId), fc);');
+  lines.push('    }');
+  lines.push('  } catch(e) {}');
+  lines.push('}');
+  lines.push('function buildFormFields(fc) {');
+  lines.push('  return (fc.fields || []).map(function(f) {');
+  lines.push('    var req = f.required ? "<em>*</em>" : "";');
+  lines.push('    var inp = "";');
+  lines.push('    if (f.type === "textarea") {');
+  lines.push('      inp = "<textarea class=\"fp-textarea\" id=\"ff_" + f.id + "\" placeholder=\"" + (f.placeholder||"") + "\"></textarea>";');
+  lines.push('    } else if (f.type === "select") {');
+  lines.push('      var opts = (f.options||[]).map(function(o) { return "<option>" + o + "</option>"; }).join("");');
+  lines.push('      inp = "<select class=\"fp-select\" id=\"ff_" + f.id + "\"><option value=\"\">선택해주세요</option>" + opts + "</select>";');
+  lines.push('    } else {');
+  lines.push('      inp = "<input class=\"fp-input\" id=\"ff_" + f.id + "\" type=\"" + (f.type||"text") + "\" placeholder=\"" + (f.placeholder||"") + "\">";');
+  lines.push('    }');
+  lines.push('    return "<div class=\"fp-field\"><label class=\"fp-label\">" + f.label + req + "</label>" + inp + "</div>";');
+  lines.push('  }).join("");');
+  lines.push('}');
+  lines.push('function getFormData(fc) {');
+  lines.push('  var data = {}, missing = [];');
+  lines.push('  (fc.fields || []).forEach(function(f) {');
+  lines.push('    var el = document.getElementById("ff_" + f.id);');
+  lines.push('    if (!el) return;');
+  lines.push('    data[f.id] = el.value.trim();');
+  lines.push('    if (f.required && !data[f.id]) missing.push(f.label);');
+  lines.push('  });');
+  lines.push('  return {data:data, missing:missing};');
+  lines.push('}');
+  lines.push('function openFormModal(fc) {');
+  lines.push('  var overlay = document.getElementById("fpOverlay");');
+  lines.push('  if (overlay) { overlay.classList.add("show"); return; }');
+  lines.push('  overlay = document.createElement("div");');
+  lines.push('  overlay.id = "fpOverlay";');
+  lines.push('  overlay.className = "fp-overlay";');
+  lines.push('  var html = "";');
+  lines.push('  html += "<div class=\"fp-modal\">";');
+  lines.push('  html += "<div class=\"fp-modal-hd\"><div><div class=\"fp-title\">" + fc.title + "</div><div class=\"fp-sub\">" + fc.subtitle + "</div></div>";');
+  lines.push('  html += "<button class=\"fp-close\" onclick=\"closeFormModal()\">&#x2715;</button></div>";');
+  lines.push('  html += "<div class=\"fp-body\"><div id=\"fpFields\">" + buildFormFields(fc) + "</div>";');
+  lines.push('  html += "<button class=\"fp-submit\" onclick=\"submitForm(true)\">" + fc.submit_text + "</button>";');
+  lines.push('  html += "<p class=\"fp-err\" id=\"fpErr\"></p></div></div>";');
+  lines.push('  overlay.innerHTML = html;');
+  lines.push('  overlay.onclick = function(e) { if (e.target === overlay) closeFormModal(); };');
+  lines.push('  document.body.appendChild(overlay);');
+  lines.push('  overlay.offsetHeight;');
+  lines.push('  overlay.classList.add("show");');
+  lines.push('  window._fpConfig = fc;');
+  lines.push('}');
+  lines.push('function closeFormModal() {');
+  lines.push('  var o = document.getElementById("fpOverlay");');
+  lines.push('  if (o) { o.classList.remove("show"); setTimeout(function(){o.remove();},300); }');
+  lines.push('}');
+  lines.push('function renderFormInline(el, fc) {');
+  lines.push('  if (!el) return;');
+  lines.push('  window._fpConfig = fc;');
+  lines.push('  var html = "<div class=\"order-panel\">" + buildFormFields(fc);');
+  lines.push('  html += "<button class=\"fp-submit\" onclick=\"submitForm(false)\">" + fc.submit_text + "</button>";');
+  lines.push('  html += "<p class=\"fp-err\" id=\"fpErr\"></p></div>";');
+  lines.push('  el.innerHTML = html;');
+  lines.push('}');
+  lines.push('async function submitForm(isPopup) {');
+  lines.push('  var fc = window._fpConfig;');
+  lines.push('  if (!fc) return;');
+  lines.push('  var result = getFormData(fc);');
+  lines.push('  if (result.missing.length) {');
+  lines.push('    document.getElementById("fpErr").textContent = result.missing.join(", ") + " 항목을 입력해주세요.";');
+  lines.push('    return;');
+  lines.push('  }');
+  lines.push('  try {');
+  lines.push('    var r = await fetch("/api/form-submit", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(result.data)});');
+  lines.push('    var d = await r.json();');
+  lines.push('    if (d.ok) {');
+  lines.push('      var sel = isPopup ? ".fp-body" : ".order-panel";');
+  lines.push('      var target = document.querySelector(sel);');
+  lines.push('      if (target) target.innerHTML = "<div class=\"fp-success\"><div class=\"fp-success-icon\">\u2705</div><div class=\"fp-success-msg\">" + fc.success_msg + "</div></div>";');
+  lines.push('    } else { document.getElementById("fpErr").textContent = "오류가 발생했습니다."; }');
+  lines.push('  } catch(e) { document.getElementById("fpErr").textContent = "네트워크 오류."; }');
+  lines.push('}');
+  return lines.join('\n');
 }
 
-// ── 신청 페이지 (고정 폼) ─────────────────────────────────────
+
 async function getOrderHTML(cfg, env) {
   var raw = await env.BLOG_KV.get("form_config");
   var def = {title:"블로그 제작 신청", subtitle:"애드센스 승인용 블로그를 빠르게 만들어드립니다", fixed_enabled:true, popup_enabled:false, popup_trigger:"button", popup_delay:5, button_text:"📋 블로그 제작 신청", button_pos:"right", submit_text:"신청하기", success_msg:"신청이 완료되었습니다! 24시간 이내에 연락드리겠습니다.", fields:[{id:"name",label:"이름",type:"text",placeholder:"홍길동",required:true},{id:"contact",label:"연락처 (카카오톡 ID or 전화번호)",type:"text",placeholder:"kakao123",required:true},{id:"blog_name",label:"원하는 블로그 이름",type:"text",placeholder:"내 블로그",required:true},{id:"color",label:"선호 색상",type:"select",options:["라임(#b3ff00)","시안(#00d4ff)","오렌지(#ff6b00)","핑크(#ff3b8f)","퍼플(#7c3aed)","직접 지정"],required:false},{id:"memo",label:"기타 요청사항",type:"textarea",placeholder:"원하시는 내용을 자유롭게 적어주세요",required:false}]};
